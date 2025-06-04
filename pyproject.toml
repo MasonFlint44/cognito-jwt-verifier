@@ -1,10 +1,11 @@
 [project]
-name = "uv-devcontainer-template"
-version = "0.1.0"
-description = "Add your description here"
+name = "cognito-jwt-verifier"
+version = "0.0.1"
+description = "A utility for verifying JWTs issued by AWS Cognito."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.13"
 dependencies = [
-    "glom==24.*",
     "pytest==8.*",
+    "aiohttp",
+    "pyjwt[crypto]",
 ]
