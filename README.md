@@ -1,54 +1,93 @@
-# UV Devcontainer Template
+# cognito-jwt-verifier
 
-This template is designed to streamline the setup of a Python development environment using the `uv` package manager on Debian Bookworm. It's equipped with a collection of tools and extensions specifically chosen to enhance the Python development workflow, from code writing to testing and deployment.
+A utility for verifying JWTs issued by AWS Cognito.
 
-## Features Overview
+## ✨ Features
 
-| Feature                 | Description                                                                                           |
-|-------------------------|-------------------------------------------------------------------------------------------------------|
-| **Operating System**    | Debian Bookworm, providing a stable foundation for development.                                       |
-| **Package Management**  | `uv`, a lightweight and efficient package and environment manager.                                    |
-| **Programming Language**| Python, ready for development right out of the box.                                                  |
-| **Version Control**     | Git integrated for robust version control.                                                           |
-| **VSCode Extensions**   | A curated list of VSCode extensions installed, including essentials for Python development.           |
-| **Testing Framework**   | Pytest configured to run tests from the `tests` directory, utilizing VSCode's test runner for ease of testing. |
+- **Async & non‑blocking** verification using `aiohttp`.
+- Automatic **JWKS caching & key rollover**.
+- Validates both **ID** and **access** tokens out‑of‑the‑box.
+- Zero heavy dependencies (only `aiohttp`, `PyJWT`, `cryptography`).
 
-## Getting Started
+## 📦 Installation
 
-1. **Clone and Open**: Clone this repository and open it in VSCode. The project will prompt to reopen in a devcontainer.
-1. **Dev Environment Initialization**: The `uv sync` task can be run manually, preparing and updating your development environment.
-1. **Rename the Project Directory**: Rename the `/project` directory to match the name of your new project to get started. Update the project name in the pyproject.toml file as well.
+```bash
+pip install cognito-jwt-verifier
+```
 
-## Managing Dependencies
+## 🚀 Quick Start
 
-- **Application Dependencies**: Defined in `pyproject.toml`. A frozen set of these dependencies is created and stored in `uv.lock` for reproducible deployments.
+```python
+import asyncio
+from cognito_jwt_verifier import AsyncCognitoJwtVerifier
 
-## Running Tests
+async def main():
+    verifier = AsyncCognitoJwtVerifier(
+        issuer="https://cognito-idp.us-east-2.amazonaws.com/<USER_POOL_ID>",
+        client_ids=["<APP_CLIENT_ID>"],
+    )
 
-Tests are run using VSCode's integrated test runner:
+    await verifier.init_keys()  # optional warm‑up
 
-1. Navigate to the testing sidebar in VSCode.
-1. You'll see your tests listed there. Test can be run directly from the UI.
+    claims = await verifier.verify_id_token("<ID_TOKEN>")
+    print(claims)
 
-## Running the Application
+asyncio.run(main())
+```
 
-VSCode's `launch.json` is configured to debug the currently open Python file, allowing you to run and debug any part of your project easily.
+## 🛡️ FastAPI example
 
-> Note: You may need to tweak `launch.json` for specific project requirements, such as adding arguments or setting environment variables.
+```python
+from contextlib import asynccontextmanager
 
-### Quick Start
+from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi.security import OAuth2AuthorizationCodeBearer
+from jwt import PyJWTError
 
-- Open `project/main.py` or any Python file you intend to run.
-- Use `F5` or the green play button in the "Run and Debug" sidebar to start debugging.
+from cognito_jwt_verifier import AsyncCognitoJwtVerifier
 
-## Deployment
+ISSUER = "https://cognito-idp.us-east-2.amazonaws.com/us-east-2_ae7uogn5r"
+CLIENT_IDS = ["4pvqqexampleclientid"]
 
-Deploy your application using the dependencies detailed in `uv.lock` to guarantee that your deployment mirrors the tested state of your application.
+verifier = AsyncCognitoJwtVerifier(ISSUER, client_ids=CLIENT_IDS)
 
-## Contributing
+oauth2_scheme = OAuth2AuthorizationCodeBearer(
+    authorizationUrl=f"{ISSUER}/oauth2/authorize",
+    tokenUrl=f"{ISSUER}/oauth2/token",
+)
 
-We welcome contributions to improve the `uv-devcontainer-template`. Please follow the standard fork and pull request workflow. Make sure to add tests for new features and update the documentation as necessary.
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await verifier.init_keys()
+    try:
+        yield
+    finally:
+        await verifier.close()
 
-## License
+app = FastAPI(lifespan=lifespan)
 
-This project is licensed under the [MIT License](LICENSE.md).
+async def get_current_user(token: str = Depends(oauth2_scheme)):
+    try:
+        return await verifier.verify_access_token(token)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+@app.get("/user")
+async def read_user(user: dict = Depends(get_current_user)):
+    return {"user": user}
+```
+
+## 📚 API at a glance
+
+| Method | Description |
+|--------|-------------|
+| `init_keys()` | Prefetch JWKS (optional). |
+| `verify_id_token(token: str)` | Validate an *ID* token & return claims. |
+| `verify_access_token(token: str)` | Validate an *access* token & return claims. |
+| `close()` | Close the internal `aiohttp` session. |
+
+> If Cognito rotates its keys, the verifier fetches the new JWKS automatically.
