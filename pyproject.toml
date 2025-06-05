@@ -3,9 +3,10 @@ name = "cognito-jwt-verifier"
 version = "0.0.1"
 description = "A utility for verifying JWTs issued by AWS Cognito."
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "pytest==8.*",
-    "aiohttp",
-    "pyjwt[crypto]",
+    "pytest-asyncio==1.*",
+    "aiohttp==3.*",
+    "pyjwt[crypto]==2.*",
 ]
