@@ -23,13 +23,11 @@ class AsyncCognitoJwtVerifier:
         self.jwks_url = f"{self.issuer}/.well-known/jwks.json"
         self.client_ids = set(client_ids)
         self.leeway = leeway
+        self.http_timeout = http_timeout
 
         # in-memory cache {kid: public_key_object}
         self._keys: dict[str, RSAPublicKey] = {}
-
-        # aiohttp client for non-blocking HTTPS
-        timeout = aiohttp.ClientTimeout(total=http_timeout)
-        self._session = aiohttp.ClientSession(timeout=timeout)
+        self._session: aiohttp.ClientSession | None = None
 
     async def init_keys(self) -> None:
         """Optional: call at app start to pre-load JWKS."""
@@ -37,8 +35,14 @@ class AsyncCognitoJwtVerifier:
 
     async def close(self) -> None:
         """Close the internal aiohttp session (call in shutdown hook)."""
-        if not self._session.closed:
+        if self._session and not self._session.closed:
             await self._session.close()
+
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self._session is None:
+            timeout = aiohttp.ClientTimeout(total=self.http_timeout)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
 
     async def _get_key(self, token: str) -> RSAPublicKey:
         """Get the signing key for a given token; downloads JWKS if needed."""
@@ -69,7 +73,6 @@ class AsyncCognitoJwtVerifier:
             options={"require": ["exp", "iat", "iss", "token_use"]},
         )
 
-        # ID token-specific checks
         if claims.get("token_use") != "id":
             raise InvalidTokenError(f"token_use {claims.get('token_use')!r} != id")
 
@@ -88,7 +91,6 @@ class AsyncCognitoJwtVerifier:
             options={"require": ["exp", "iat", "iss", "token_use"]},
         )
 
-        # Access token-specific checks
         if claims.get("token_use") != "access":
             raise InvalidTokenError(f"token_use {claims.get('token_use')!r} != access")
 
@@ -101,8 +103,9 @@ class AsyncCognitoJwtVerifier:
         return claims
 
     async def _download_jwks(self) -> None:
+        session = await self._ensure_session()
         logger.debug("Fetching JWKS from %s", self.jwks_url)
-        async with self._session.get(self.jwks_url) as resp:
+        async with session.get(self.jwks_url) as resp:
             resp.raise_for_status()
             jwks = await resp.json()
 
