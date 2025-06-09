@@ -1,6 +1,6 @@
 [project]
 name = "cognito-jwt-verifier"
-version = "0.0.1"
+version = "0.0.3"
 description = "A utility for verifying JWTs issued by AWS Cognito."
 readme = "README.md"
 requires-python = ">=3.12"
